@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AntSwarm | AI Swarm Scraper</title>
+    <title>AntColony | Swarm Agent</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -15,14 +15,19 @@
             theme: {
                 extend: {
                     colors: { 
-                        base: '#F55036', 
+                        base: '#F55036', /* Groq Orange Theme */
                         dark: '#050505', 
                         accent: '#FF7A00', 
-                        success: '#00FF94'
+                        success: '#00FF94', 
+                        glass: 'rgba(20, 10, 10, 0.6)'
                     },
                     fontFamily: { 
                         sans: ['Rajdhani', 'sans-serif'], 
                         mono: ['JetBrains Mono', 'monospace'] 
+                    },
+                    animation: {
+                        'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'spin-slow': 'spin 8s linear infinite',
                     }
                 }
             }
@@ -30,170 +35,361 @@
     </script>
 
     <style>
-        body { background-color: #030100; color: #e2e8f0; overflow: hidden; margin: 0; }
-        #swarm-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; opacity: 0.3; }
-        .glass-panel { background: rgba(20, 10, 5, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(245, 80, 54, 0.2); }
+        body { background-color: #030100; color: #e2e8f0; overflow: hidden; margin: 0; cursor: crosshair; }
+        
+        /* Background & Overlay */
+        #swarm-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -2; opacity: 0.4; }
+        .crt-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.1) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            background-size: 100% 3px, 3px 100%;
+        }
+
+        /* Glassmorphism */
+        .glass-panel {
+            background: rgba(20, 10, 5, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(245, 80, 54, 0.2);
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease;
+        }
+        .glass-panel:hover { border-color: #F55036; box-shadow: 0 0 25px rgba(245, 80, 54, 0.2); transform: translateY(-2px); }
+
+        /* Animations */
         .hidden-section { display: none !important; }
-        .fade-in { animation: fadeIn 0.5s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-thumb { background: #F55036; border-radius: 10px; }
+        .fade-in { animation: fadeIn 0.8s ease-out forwards; opacity: 0; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Chat Styling */
+        .user-msg { background: #1a1a1a; border-right: 2px solid #F55036; padding: 12px 20px; border-radius: 12px 2px 12px 12px; align-self: flex-end; max-width: 80%; }
+        .bot-msg { background: rgba(255,255,255,0.03); border-left: 2px solid #FF7A00; padding: 12px 20px; border-radius: 2px 12px 12px 12px; align-self: flex-start; max-width: 90%; }
+        
+        .bot-msg code { color: #FF7A00; background: rgba(0,0,0,0.3); padding: 2px 6px; font-family: 'JetBrains Mono'; border-radius: 4px; }
+        .bot-msg pre { background: #080808; padding: 10px; border: 1px solid #333; overflow-x: auto; margin: 10px 0; border-radius: 6px; }
+        .bot-msg strong { color: #F55036; }
+
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .typing-cursor::after { content: '▋'; animation: blink 1s infinite; color: #F55036; margin-left: 2px; }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
     </style>
 </head>
+
 <body class="antialiased">
 
     <canvas id="swarm-canvas"></canvas>
+    <div class="crt-overlay"></div>
 
-    <header class="h-16 border-b border-white/10 flex items-center justify-between px-6 bg-black/40 backdrop-blur-md fixed w-full z-50">
-        <div class="flex items-center gap-4">
-            <i class="fa-solid fa-bug text-base text-xl animate-pulse"></i>
-            <span class="font-bold text-xl tracking-widest text-white">ANT<span class="text-base">SWARM</span></span>
+    <div id="boot-screen" class="fixed inset-0 bg-black z-[9999] flex flex-col items-center justify-center transition-opacity duration-1000">
+        <div class="text-5xl font-black tracking-widest mb-2 flex items-center gap-3">
+            <i class="fa-solid fa-bug text-base animate-pulse"></i> ANT<span class="text-white">SWARM AGENT</span>
         </div>
-        <div id="api-status" class="text-[10px] font-mono text-orange-500 border border-orange-500/30 px-4 py-1.5 rounded bg-orange-500/5">
-            PROFILING RENDER CLOUD...
+        <div class="text-xs text-gray-500 font-mono" id="boot-text">INITIALIZING SWARM INTELLIGENCE...</div>
+        <div class="w-64 h-1 bg-gray-800 mt-6 rounded-full overflow-hidden relative">
+            <div id="boot-bar" class="h-full bg-base w-0 transition-all duration-[2000ms] ease-out shadow-[0_0_10px_#F55036]"></div>
         </div>
-    </header>
+    </div>
 
-    <div class="pt-24 h-screen flex flex-col p-4 md:p-8 max-w-6xl mx-auto relative z-10">
-        
-        <div id="chat-container" class="flex-1 overflow-y-auto space-y-6 pb-10 pr-2 scrollbar-hide">
-            <div id="empty-state" class="flex flex-col items-center justify-center h-full text-center space-y-6">
-                <i class="fa-solid fa-microchip text-6xl text-gray-800"></i>
-                <h1 class="text-2xl font-bold tracking-tighter">SWARM INTELLIGENCE READY</h1>
-                <p class="text-gray-500 text-sm font-mono max-w-sm">Enter Target URL and Extraction Prompt to begin protocol.</p>
+    <div id="landing-view" class="h-screen flex flex-col transition-all duration-700 relative z-10">
+        <nav class="fixed w-full z-50 h-20 flex items-center justify-between px-8 border-b border-white/5 bg-black/20 backdrop-blur-sm">
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-bolt text-base text-xl"></i>
+                <span class="font-bold text-xl tracking-[0.2em] text-white">ANT<span class="text-base">SWARM</span></span>
             </div>
-        </div>
-
-        <div class="glass-panel p-4 rounded-2xl relative mb-6">
-            <div id="action-buttons" class="hidden absolute -top-12 right-0 flex gap-2">
-                <button onclick="downloadCSV()" class="bg-success/10 border border-success/50 text-success px-4 py-2 rounded text-[10px] font-mono hover:bg-success/20 transition">
-                    <i class="fa-solid fa-file-csv mr-2"></i>SAVE CSV
+            <div class="flex items-center gap-6">
+                <div class="hidden md:flex text-[10px] font-mono gap-4 text-gray-400">
+                    <span id="network-status" class="flex items-center gap-2"><div class="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></div> STANDBY</span>
+                </div>
+                <button id="connect-btn-landing" class="relative group overflow-hidden bg-white/5 border border-base/30 text-xs px-6 py-2.5 rounded hover:bg-base/10 transition-all font-mono tracking-wider text-base">
+                    <span class="relative z-10 flex items-center gap-2"><i class="fa-solid fa-link"></i> <span id="btn-text-landing">CONNECT WALLET</span></span>
                 </button>
             </div>
+        </nav>
 
-            <div class="flex flex-col md:flex-row gap-3">
-                <div class="flex-1 bg-black/40 rounded-xl px-4 py-3 border border-white/5 focus-within:border-base/50 transition flex items-center">
-                    <i class="fa-solid fa-link text-gray-600 mr-3 text-xs"></i>
-                    <input id="url-input" type="text" placeholder="Target URL..." class="bg-transparent w-full outline-none text-sm font-mono text-white">
+        <main class="flex-1 flex flex-col items-center justify-center text-center px-4 relative">
+            <div class="fade-in" style="animation-delay: 0.2s;">
+                <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-base/10 border border-base/20 text-base text-[10px] font-mono tracking-[0.2em] mb-8">
+                    ● POWERED BY GROQ (LLAMA 3.3)
                 </div>
-                <div class="flex-[2] bg-black/40 rounded-xl px-4 py-3 border border-white/5 focus-within:border-base/50 transition flex items-center">
-                    <i class="fa-solid fa-terminal text-gray-600 mr-3 text-xs"></i>
-                    <input id="prompt-input" type="text" placeholder="What should I extract? (e.g. List all prices)" class="bg-transparent w-full outline-none text-sm font-mono text-white">
+            </div>
+
+            <h1 class="fade-in text-6xl md:text-8xl font-black text-white mb-6 leading-none" style="animation-delay: 0.4s;">
+                INSTANT <br> <span class="text-transparent bg-clip-text bg-gradient-to-r from-base via-orange-400 to-white">INTELLIGENCE</span>
+            </h1>
+
+            <div class="fade-in grid grid-cols-1 md:grid-cols-3 gap-5 w-full max-w-5xl mt-12 px-4" style="animation-delay: 0.6s;">
+                <div class="glass-panel h-40 rounded-xl p-4 font-mono text-[10px] flex flex-col text-left group">
+                    <div class="border-b border-white/10 pb-2 mb-2 flex justify-between text-gray-500"><span>root@antcolony:~</span><span class="text-success">● READY</span></div>
+                    <div id="landing-terminal" class="flex-1 overflow-y-auto text-gray-400 space-y-1 scrollbar-hide"></div>
                 </div>
-                <button id="send-btn" onclick="executeSwarm()" class="bg-base hover:bg-orange-600 text-white w-14 h-12 rounded-xl flex items-center justify-center transition shadow-lg shadow-base/20">
-                    <i class="fa-solid fa-bolt"></i>
-                </button>
+                <div class="glass-panel h-40 rounded-xl flex items-center justify-center p-1 group cursor-pointer md:col-span-2" id="launch-card">
+                    <button id="launch-btn" class="w-full h-full bg-white/5 hover:bg-white/10 rounded-lg flex flex-col items-center justify-center gap-3 transition-all group-hover:scale-[0.98]">
+                        <div class="w-12 h-12 rounded-full bg-gradient-to-br from-base to-orange-500 flex items-center justify-center shadow-[0_0_20px_rgba(245,80,54,0.4)]">
+                            <i class="fa-solid fa-robot text-black text-xl"></i>
+                        </div>
+                        <span class="font-bold tracking-widest text-white text-sm">LAUNCH SWARM AGENT</span>
+                    </button>
+                </div>
             </div>
-            <div class="flex justify-between items-center mt-3 px-1">
-                <span id="status-label" class="text-[10px] font-mono text-gray-600 tracking-widest uppercase">System Idle</span>
-                <span class="text-[10px] font-mono text-gray-700">Llama 3.3 @ Groq LPU</span>
+        </main>
+    </div>
+
+    <div id="agent-view" class="h-screen hidden-section flex flex-col relative z-20">
+        <header class="h-16 border-b border-white/10 flex items-center justify-between px-6 bg-black/40 backdrop-blur-md">
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded bg-gradient-to-br from-base to-orange-500 p-[1px]">
+                    <div class="w-full h-full bg-black flex items-center justify-center rounded"><i class="fa-solid fa-bug text-base"></i></div>
+                </div>
+                <div>
+                    <h2 class="font-bold text-white tracking-widest">ANTSWARM <span class="text-base">AI</span></h2>
+                    <div class="flex items-center gap-2 text-[10px] font-mono text-gray-400"><span class="w-1.5 h-1.5 bg-success rounded-full animate-pulse"></span> GROQ: LLAMA 3.3</div>
+                </div>
             </div>
+            <div class="flex items-center gap-4">
+                <div id="wallet-status-app" class="hidden md:block text-[10px] font-mono text-gray-400 border border-white/10 px-4 py-1.5 rounded bg-white/5">WAITING CONNECTION...</div>
+                <button class="text-gray-500 hover:text-danger transition-colors" onclick="window.location.reload()"><i class="fa-solid fa-power-off text-xl"></i></button>
+            </div>
+        </header>
+
+        <div id="chat-container" class="flex-1 overflow-y-auto p-6 md:p-20 space-y-8 scrollbar-hide flex flex-col">
+            <div class="flex flex-col items-center justify-center h-full text-center space-y-8 fade-in" id="empty-state">
+                <div class="relative"><div class="absolute inset-0 bg-base blur-[40px] opacity-20"></div><i class="fa-solid fa-microchip text-6xl text-white relative z-10"></i></div>
+                <h3 class="text-3xl font-bold text-white tracking-tight">Swarm Intelligence Ready.</h3>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl">
+                    <button onclick="sendPrompt('Analyze the current BTC and ETH technical trends.')" class="glass-panel p-4 rounded-lg text-left group hover:border-accent transition-all">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-white/10 flex items-center justify-center text-accent"><i class="fa-solid fa-chart-line"></i></div>
+                            <div><div class="text-sm font-bold text-white group-hover:text-accent">Market Analysis</div><div class="text-[10px] text-gray-500 font-mono">BTC/ETH Trends</div></div>
+                        </div>
+                    </button>
+                    <button onclick="sendPrompt('Write a secure Solidity smart contract for a Staking Vault.')" class="glass-panel p-4 rounded-lg text-left group hover:border-success transition-all">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-white/10 flex items-center justify-center text-success"><i class="fa-solid fa-code"></i></div>
+                            <div><div class="text-sm font-bold text-white group-hover:text-success">Code Generator</div><div class="text-[10px] text-gray-500 font-mono">Solidity Contracts</div></div>
+                        </div>
+                    </button>
+                    <button onclick="sendPrompt('How do I audit a token contract for Honeypot risks?')" class="glass-panel p-4 rounded-lg text-left group hover:border-danger transition-all">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-white/10 flex items-center justify-center text-danger"><i class="fa-solid fa-shield-halved"></i></div>
+                            <div><div class="text-sm font-bold text-white group-hover:text-danger">Security Audit</div><div class="text-[10px] text-gray-500 font-mono">Check for Honeypots</div></div>
+                        </div>
+                    </button>
+                    <button onclick="sendPrompt('Explain Impermanent Loss in Liquidity Pools.')" class="glass-panel p-4 rounded-lg text-left group hover:border-purple-500 transition-all">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded bg-white/10 flex items-center justify-center text-purple-500"><i class="fa-solid fa-wheat-awn"></i></div>
+                            <div><div class="text-sm font-bold text-white group-hover:text-purple-500">DeFi Strategy</div><div class="text-[10px] text-gray-500 font-mono">Yield Farming Risk</div></div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-6 md:px-32 pb-10">
+            <div class="relative glass-panel rounded-full p-1 flex items-center">
+                <div class="pl-6 pr-4 text-base"><i class="fa-solid fa-terminal"></i></div>
+                <input type="text" id="chat-input" class="w-full bg-transparent border-none text-white focus:ring-0 h-12 font-mono text-sm placeholder-gray-600 outline-none" placeholder="Ask AntSwarm AI..." autocomplete="off">
+                <button id="send-btn" class="w-10 h-10 bg-white text-black rounded-full flex items-center justify-center hover:bg-base hover:scale-110 transition-all mr-1"><i class="fa-solid fa-arrow-right"></i></button>
+            </div>
+            <div class="text-center mt-3 flex justify-center gap-4 text-[10px] text-gray-600 font-mono"><span>SPEED: <span id="latency-val">0</span>ms</span><span>SECURE BACKEND</span></div>
         </div>
     </div>
 
     <script>
-        let lastExtractedData = null;
+        const BASE_CHAIN_ID_HEX = '0x2105'; 
 
-        // --- KONFIGURASI URL RENDER ANDA ---
-        // GANTI BAGIAN DI BAWAH INI DENGAN URL DARI DASHBOARD RENDER ANDA
-        const RENDER_API_URL = "https://NAMA-WEB-SERVICE-ANDA.onrender.com/api/scrape";
+        // --- 1. BOOT SEQUENCE ---
+        window.addEventListener('load', () => {
+            const bar = document.getElementById('boot-bar');
+            const screen = document.getElementById('boot-screen');
+            const text = document.getElementById('boot-text');
+            setTimeout(() => { bar.style.width = '100%'; text.innerText = 'SWARM INTELLIGENCE READY.'; text.style.color = '#F55036'; }, 1500);
+            setTimeout(() => { screen.style.opacity = '0'; setTimeout(() => { screen.style.display = 'none'; }, 800); restoreSession(); }, 2000);
+        });
 
-        async function executeSwarm() {
-            const urlInput = document.getElementById('url-input');
-            const promptInput = document.getElementById('prompt-input');
-            const btn = document.getElementById('send-btn');
-            const status = document.getElementById('status-label');
-            
-            if(!urlInput.value || !promptInput.value) return alert("All protocols require input.");
+        // Fake Terminal
+        const landingTerm = document.getElementById('landing-terminal');
+        setInterval(() => {
+            if(document.getElementById('landing-view').style.display === 'none') return;
+            const msgs = ["Initializing LPU...", "Loading Llama 3.3...", "Throughput: 800 T/s", "Agent: Online"];
+            const div = document.createElement('div');
+            div.innerHTML = `<span class="text-gray-600">></span> ${msgs[Math.floor(Math.random()*msgs.length)]}`;
+            landingTerm.appendChild(div); landingTerm.scrollTop = landingTerm.scrollHeight;
+        }, 1200);
 
-            // UI State
-            document.getElementById('empty-state').classList.add('hidden-section');
-            document.getElementById('action-buttons').classList.add('hidden');
-            btn.innerHTML = `<i class="fa-solid fa-circle-notch animate-spin"></i>`;
-            status.innerText = "INFUSING SWARM AGENTS...";
-            status.className = "text-[10px] font-mono text-base animate-pulse";
+        // --- 2. SWITCH VIEW ---
+        document.getElementById('launch-btn').addEventListener('click', () => {
+            const landing = document.getElementById('landing-view');
+            landing.style.opacity = '0'; landing.style.transform = 'scale(1.1)';
+            setTimeout(() => { landing.classList.add('hidden-section'); document.getElementById('agent-view').classList.remove('hidden-section'); document.getElementById('agent-view').classList.add('fade-in'); }, 600);
+        });
 
-            appendMessage(promptInput.value, 'user');
+        // --- 3. SECURE AI ENGINE ---
+        const chatContainer = document.getElementById('chat-container');
+        const chatInput = document.getElementById('chat-input');
+
+        async function fetchAIResponse(userPrompt) {
+            const url = "/api/chat"; // Calls Vercel Backend
+            const payload = {
+                messages: [
+                    { role: "system", content: "You are AntSwarm, an elite crypto AI agent powered by Groq LPU (Llama 3.3). Provide technical, concise answers. Use Markdown." },
+                    { role: "user", content: userPrompt }
+                ]
+            };
 
             try {
-                const response = await fetch(RENDER_API_URL, {
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: urlInput.value, prompt: promptInput.value })
+                    body: JSON.stringify(payload)
                 });
-
+                
                 const data = await response.json();
-
-                if(data.status === 'success') {
-                    lastExtractedData = JSON.parse(data.data);
-                    appendMessage(data.data, 'bot');
-                    document.getElementById('action-buttons').classList.remove('hidden');
-                    status.innerText = "EXTRACTION COMPLETE";
-                    status.className = "text-[10px] font-mono text-success tracking-widest";
-                } else {
-                    appendMessage("ERROR: " + data.detail, 'error');
+                
+                if(data.error) {
+                    console.warn("Backend fail, using warning message.");
+                    return "⚠️ **System Error:** Please ensure you have deployed the `api/chat.js` file to Vercel and set the `GROQ_API_KEY` environment variable.";
                 }
-            } catch (err) {
-                appendMessage("CONNECTION FAILED. Ensure Render server is awake.", 'error');
-                status.innerText = "OFFLINE";
-                status.className = "text-[10px] font-mono text-red-500";
+                
+                return data.choices[0].message.content;
+            } catch (error) { 
+                return "⚠️ **Connection Error.** Please check your internet connection."; 
             }
-
-            btn.innerHTML = `<i class="fa-solid fa-bolt"></i>`;
-            promptInput.value = '';
         }
 
-        function appendMessage(text, type) {
-            const container = document.getElementById('chat-container');
+        function addMessage(text, sender) {
+            document.getElementById('empty-state').classList.add('hidden-section');
             const div = document.createElement('div');
+            div.className = sender === 'user' ? 'user-msg fade-in text-sm text-gray-200' : 'bot-msg fade-in text-gray-300';
             
-            if(type === 'user') {
-                div.className = "fade-in bg-white/5 border border-white/5 p-4 rounded-xl text-sm font-mono text-gray-400 self-end ml-auto max-w-xl";
-                div.innerText = `> ${text}`;
-            } else if(type === 'bot') {
-                div.className = "fade-in bg-black/60 border border-base/30 p-5 rounded-xl text-xs font-mono text-green-400 w-full overflow-x-auto shadow-2xl";
-                div.innerHTML = `<div class="mb-2 text-[10px] text-base opacity-70">RAW DATA EXTRACTED:</div><pre>${JSON.stringify(JSON.parse(text), null, 2)}</pre>`;
+            if (sender === 'bot') {
+                div.innerHTML = `<div class="flex gap-4"><i class="fa-solid fa-bolt text-base mt-1"></i><div class="w-full space-y-2"><div class="typing-container"><span class="typing-cursor"></span></div></div></div>`;
+                chatContainer.appendChild(div);
+                
+                const htmlContent = marked.parse(text); 
+                const container = div.querySelector('.typing-container');
+                container.innerHTML = `<span class="text-base text-xs animate-pulse">INFERENCING...</span>`;
+                
+                setTimeout(() => {
+                    container.innerHTML = htmlContent;
+                    container.querySelectorAll('pre').forEach(block => { block.className = "bg-[#050505] p-4 rounded border border-white/10 overflow-x-auto text-xs font-mono text-success my-3"; });
+                }, 400); 
             } else {
-                div.className = "fade-in bg-red-500/10 border border-red-500/30 p-4 rounded-xl text-red-500 text-xs font-mono";
-                div.innerText = text;
+                div.innerText = text; chatContainer.appendChild(div);
             }
-
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
 
-        function downloadCSV() {
-            if(!lastExtractedData) return;
-            let rows = Array.isArray(lastExtractedData) ? lastExtractedData : [lastExtractedData];
-            const headers = Object.keys(rows[0]);
-            const csv = [headers.join(','), ...rows.map(row => headers.map(h => `"${row[h]}"`).join(','))].join('\n');
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `swarm_data_${Date.now()}.csv`;
-            a.click();
+        async function processAI(prompt) {
+            addMessage("...", 'bot'); 
+            const start = Date.now();
+            const response = await fetchAIResponse(prompt); 
+            document.getElementById('latency-val').innerText = Date.now() - start;
+            chatContainer.lastElementChild.remove(); 
+            addMessage(response, 'bot');
         }
 
-        // Particle Background logic...
+        function sendPrompt(msg) {
+            const text = msg || chatInput.value.trim();
+            if (!text) return;
+            addMessage(text, 'user');
+            chatInput.value = '';
+            processAI(text);
+        }
+
+        document.getElementById('send-btn').addEventListener('click', () => sendPrompt());
+        chatInput.addEventListener('keypress', (e) => { if(e.key === 'Enter') sendPrompt(); });
+
+        // --- 4. UNIVERSAL WALLET ---
+        const connectBtn = document.getElementById('connect-btn-landing');
+        const btnText = document.getElementById('btn-text-landing');
+        const appWalletStatus = document.getElementById('wallet-status-app');
+
+        function getAnyProvider() {
+            if (window.okxwallet) return window.okxwallet;
+            if (window.ethereum) return window.ethereum.providers ? window.ethereum.providers[0] : window.ethereum;
+            return null;
+        }
+
+        async function waitForProvider() {
+            let checks = 0; while(checks < 15) { if(getAnyProvider()) return getAnyProvider(); await new Promise(r=>setTimeout(r,200)); checks++; } return null;
+        }
+
+        async function restoreSession() {
+            if (localStorage.getItem('walletConnected') !== 'true') return;
+            const provider = await waitForProvider();
+            if (provider) {
+                try {
+                    const accounts = await provider.request({ method: 'eth_accounts' });
+                    if (accounts.length > 0) handleSuccess(accounts[0]);
+                } catch(e){}
+            }
+        }
+
+        async function connectWallet() {
+            btnText.innerText = "SEARCHING...";
+            const provider = await waitForProvider();
+            if(!provider) { alert("Wallet not found! Please install MetaMask or OKX."); btnText.innerText = "CONNECT WALLET"; return; }
+            try {
+                const accounts = await provider.request({ method: 'eth_requestAccounts' });
+                const chainId = await provider.request({ method: 'eth_chainId' });
+                if(chainId !== BASE_CHAIN_ID_HEX) {
+                    try { await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BASE_CHAIN_ID_HEX }] }); } catch(e){}
+                }
+                localStorage.setItem('walletConnected', 'true');
+                handleSuccess(accounts[0]);
+            } catch(e) { btnText.innerText = "CONNECT WALLET"; }
+        }
+
+        function handleSuccess(account) {
+            const short = account.slice(0,6) + "..." + account.slice(-4);
+            btnText.innerText = short;
+            connectBtn.classList.replace('border-base/30', 'border-success/50');
+            connectBtn.classList.add('text-success');
+            appWalletStatus.innerText = "CONNECTED: " + short;
+            appWalletStatus.className = "text-[10px] font-mono text-success border border-success/30 px-4 py-1.5 rounded bg-success/5 hidden md:block";
+        }
+
+        function resetButton() {
+            btnText.innerText = "CONNECT WALLET";
+            connectBtn.classList.replace('border-success/50', 'border-base/30');
+            connectBtn.classList.remove('text-success');
+            appWalletStatus.innerText = "NOT CONNECTED";
+        }
+
+        connectBtn.addEventListener('click', connectWallet);
+
+        if(window.ethereum) {
+            window.ethereum.on('accountsChanged', (accounts) => {
+                if(accounts.length > 0) handleSuccess(accounts[0]);
+                else { resetButton(); localStorage.removeItem('walletConnected'); }
+            });
+        }
+
+        /* --- 5. BACKGROUND VISUALS --- */
         const canvas = document.getElementById('swarm-canvas');
         const ctx = canvas.getContext('2d');
-        let pts = [];
-        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-        window.onresize = resize; resize();
-        for(let i=0; i<60; i++) pts.push({x: Math.random()*canvas.width, y: Math.random()*canvas.height, vx: (Math.random()-0.5)*0.5, vy: (Math.random()-0.5)*0.5});
-        function draw() {
-            ctx.clearRect(0,0,canvas.width,canvas.height);
-            ctx.fillStyle = '#F55036';
-            pts.forEach(p => {
-                p.x += p.vx; p.y += p.vy;
-                if(p.x<0 || p.x>canvas.width) p.vx *= -1;
-                if(p.y<0 || p.y>canvas.height) p.vy *= -1;
-                ctx.beginPath(); ctx.arc(p.x, p.y, 1, 0, Math.PI*2); ctx.fill();
-            });
-            requestAnimationFrame(draw);
+        let particles = [];
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; initParticles(); }
+        window.addEventListener('resize', resize);
+        class Particle {
+            constructor() { this.x = Math.random()*canvas.width; this.y = Math.random()*canvas.height; this.vx = (Math.random()-0.5)*0.8; this.vy = (Math.random()-0.5)*0.8; }
+            update() { this.x+=this.vx; this.y+=this.vy; if(this.x<0||this.x>canvas.width)this.vx*=-1; if(this.y<0||this.y>canvas.height)this.vy*=-1; }
         }
-        draw();
+        function initParticles() { particles = []; for(let i=0;i<70;i++) particles.push(new Particle()); }
+        function animate() {
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            for(let i=0;i<particles.length;i++) {
+                let p = particles[i]; p.update();
+                ctx.fillStyle='#F55036'; ctx.beginPath(); ctx.arc(p.x,p.y,1.5,0,Math.PI*2); ctx.fill();
+                for(let j=i;j<particles.length;j++) {
+                    let p2 = particles[j]; let d = Math.hypot(p.x-p2.x,p.y-p2.y);
+                    if(d<120) { ctx.beginPath(); ctx.strokeStyle='rgba(245, 80, 54, 0.15)'; ctx.lineWidth=0.5; ctx.moveTo(p.x,p.y); ctx.lineTo(p2.x,p2.y); ctx.stroke(); }
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+        initParticles(); animate();
     </script>
 </body>
+
 </html>
