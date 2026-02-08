@@ -95,7 +95,12 @@
                 <i class="fa-solid fa-bolt text-base text-xl"></i>
                 <span class="font-bold text-xl tracking-[0.2em] text-white">ANT<span class="text-base">SWARM</span></span>
             </div>
+            
             <div class="flex items-center gap-6">
+                <a href="https://x.com/AntSwarm_AI" target="_blank" class="flex items-center justify-center w-10 h-10 border border-white/10 bg-white/5 rounded hover:bg-base/10 hover:border-base/50 transition-all group cursor-pointer" title="Visit AntSwarm AI on X">
+                    <i class="fa-brands fa-x-twitter text-lg text-gray-400 group-hover:text-base transition-colors"></i>
+                </a>
+
                 <div class="hidden md:flex text-[10px] font-mono gap-4 text-gray-400">
                     <span id="network-status" class="flex items-center gap-2"><div class="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></div> STANDBY</span>
                 </div>
@@ -197,14 +202,34 @@
     <script>
         const BASE_CHAIN_ID_HEX = '0x2105'; 
 
-        // --- 1. BOOT SEQUENCE ---
-        window.addEventListener('load', () => {
+        // --- 1. BOOT SEQUENCE (FAILSAFE) ---
+        let isSystemStarted = false;
+
+        function startSystem() {
+            if (isSystemStarted) return; 
+            isSystemStarted = true;
+
             const bar = document.getElementById('boot-bar');
             const screen = document.getElementById('boot-screen');
             const text = document.getElementById('boot-text');
-            setTimeout(() => { bar.style.width = '100%'; text.innerText = 'SWARM INTELLIGENCE READY.'; text.style.color = '#F55036'; }, 1500);
-            setTimeout(() => { screen.style.opacity = '0'; setTimeout(() => { screen.style.display = 'none'; }, 800); restoreSession(); }, 2000);
-        });
+
+            if(bar) bar.style.width = '100%'; 
+            if(text) {
+                text.innerText = 'SWARM INTELLIGENCE READY.'; 
+                text.style.color = '#F55036';
+            }
+
+            setTimeout(() => { 
+                if(screen) {
+                    screen.style.opacity = '0'; 
+                    setTimeout(() => { screen.style.display = 'none'; }, 800); 
+                }
+                restoreSession(); 
+            }, 1000);
+        }
+
+        window.addEventListener('load', startSystem);
+        setTimeout(startSystem, 3000); // Failsafe (Anti-Macet)
 
         // Fake Terminal
         const landingTerm = document.getElementById('landing-terminal');
@@ -223,36 +248,52 @@
             setTimeout(() => { landing.classList.add('hidden-section'); document.getElementById('agent-view').classList.remove('hidden-section'); document.getElementById('agent-view').classList.add('fade-in'); }, 600);
         });
 
-        // --- 3. SECURE AI ENGINE ---
+        // --- 3. SECURE AI ENGINE (DIRECT GROQ) ---
         const chatContainer = document.getElementById('chat-container');
         const chatInput = document.getElementById('chat-input');
 
         async function fetchAIResponse(userPrompt) {
-            const url = "/api/chat"; // Calls Vercel Backend
+            
+            // ✅ API Key Anda (SUDAH TERPASANG)
+            const API_KEY = "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"; 
+
+            // Gunakan API Groq Langsung (Bukan Vercel)
+            const url = "https://api.groq.com/openai/v1/chat/completions";
+
             const payload = {
+                model: "llama-3.3-70b-versatile",
                 messages: [
-                    { role: "system", content: "You are AntSwarm, an elite crypto AI agent powered by Groq LPU (Llama 3.3). Provide technical, concise answers. Use Markdown." },
+                    { 
+                        role: "system", 
+                        content: "You are AntSwarm, an elite crypto AI agent. You provide technical, concise, and high-level blockchain insights. You use Markdown formatting heavily (bold, code blocks). Do not use polite filler words. Be direct." 
+                    },
                     { role: "user", content: userPrompt }
-                ]
+                ],
+                temperature: 0.7,
+                max_tokens: 1024
             };
 
             try {
                 const response = await fetch(url, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${API_KEY}`
+                    },
                     body: JSON.stringify(payload)
                 });
-                
-                const data = await response.json();
-                
-                if(data.error) {
-                    console.warn("Backend fail, using warning message.");
-                    return "⚠️ **System Error:** Please ensure you have deployed the `api/chat.js` file to Vercel and set the `GROQ_API_KEY` environment variable.";
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    return `⚠️ **API Error:** ${errorData.error?.message || "Gagal menghubungi Groq."}`;
                 }
                 
+                const data = await response.json();
                 return data.choices[0].message.content;
+
             } catch (error) { 
-                return "⚠️ **Connection Error.** Please check your internet connection."; 
+                console.error(error);
+                return "⚠️ **Connection Error.** Periksa koneksi internet Anda."; 
             }
         }
 
@@ -391,5 +432,4 @@
         initParticles(); animate();
     </script>
 </body>
-
 </html>
